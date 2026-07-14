@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TETRIS // POWER</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+:root{
+  --bg:#07070d;--panel:#12131f;--line:#23253a;--ink:#e7e8f5;--dim:#7a7d9c;
+  --accent:#5eead4;--accent2:#a78bfa;--warn:#ffb84d;--danger:#ff5577;--gold:#ffd23f;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{
+  height:100%;
+  background:radial-gradient(circle at 20% 10%,rgba(94,234,212,0.07),transparent 40%),
+             radial-gradient(circle at 85% 80%,rgba(167,139,250,0.08),transparent 45%),
+             var(--bg);
+  color:var(--ink);font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;
+}
+.stage{height:100%;display:flex;align-items:center;justify-content:center;padding:20px;}
+.wrap{display:flex;gap:26px;align-items:flex-start;}
+
+.board-col{display:flex;flex-direction:column;gap:12px;}
+.title{font-family:'Courier New',monospace;font-size:14px;font-weight:700;letter-spacing:3px;display:flex;align-items:baseline;gap:10px;}
+.title .power{color:var(--accent);text-shadow:0 0 14px rgba(94,234,212,0.7);}
+.title .sub{font-family:'Segoe UI',sans-serif;font-size:11px;color:var(--dim);font-weight:400;letter-spacing:1px;}
+
+.board-wrap{position:relative;}
+.board-shell{
+  border-radius:14px;padding:3px;
+  background:linear-gradient(160deg,rgba(94,234,212,0.5),rgba(167,139,250,0.25) 40%,rgba(20,20,30,0) 70%);
+}
+.board-shell.mult{
+  background:linear-gradient(160deg,var(--gold),rgba(255,184,77,0.3) 45%,rgba(20,20,30,0) 70%);
+  animation:goldPulse 1.1s ease-in-out infinite;
+}
+@keyframes goldPulse{0%,100%{filter:drop-shadow(0 0 6px rgba(255,210,63,0.2));}50%{filter:drop-shadow(0 0 24px rgba(255,210,63,0.7));}}
+canvas#board{display:block;background:#090a13;border-radius:12px;}
+.board-shell.shake{animation:shakeIt 0.35s cubic-bezier(.36,.07,.19,.97) both;}
+@keyframes shakeIt{10%,90%{transform:translate3d(-2px,0,0);}20%,80%{transform:translate3d(3px,0,0);}30%,50%,70%{transform:translate3d(-5px,0,0);}40%,60%{transform:translate3d(5px,0,0);}}
+
+.hint-row{display:flex;gap:10px;flex-wrap:wrap;}
+.hint{font-size:10px;color:var(--dim);display:flex;gap:5px;align-items:center;}
+.hint kbd{font-family:'Courier New',monospace;font-size:9px;background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:3px 6px;color:var(--ink);}
+
+.overlay{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:16px;background:rgba(5,5,11,0.92);backdrop-filter:blur(6px);
+  border-radius:12px;text-align:center;padding:28px;z-index:10;
+}
+.overlay h2{font-family:'Courier New',monospace;font-size:22px;font-weight:700;letter-spacing:3px;color:var(--accent);text-shadow:0 0 20px rgba(94,234,212,0.5);}
+.overlay p{color:var(--dim);font-size:12px;line-height:2;}
+.overlay .big-score{font-size:28px;font-weight:700;color:var(--ink);font-family:'Courier New',monospace;}
+.overlay button{
+  font-family:'Segoe UI',sans-serif;font-weight:700;font-size:14px;
+  background:var(--accent);color:#03201c;border:none;border-radius:8px;
+  padding:12px 30px;cursor:pointer;margin-top:4px;letter-spacing:.5px;
+  transition:filter .15s,transform .15s;
+}
+.overlay button:hover{filter:brightness(1.12);transform:translateY(-1px);}
+.overlay button:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+.overlay.gameover h2{color:var(--danger);text-shadow:0 0 20px rgba(255,85,119,0.5);}
+.conn-status{font-size:10px;color:var(--danger);margin-top:-8px;}
+
+.hud{width:220px;display:flex;flex-direction:column;gap:12px;}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;}
+.panel h3{margin:0 0 10px;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--dim);font-weight:600;}
+.score-big{font-family:'Courier New',monospace;font-size:26px;font-weight:700;color:var(--ink);text-shadow:0 0 16px rgba(94,234,212,0.3);transition:color .1s;}
+.score-big.bump{animation:scoreBump .2s ease;}
+@keyframes scoreBump{0%{transform:scale(1);}50%{transform:scale(1.12);color:var(--accent);}100%{transform:scale(1);}}
+.row2{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-top:7px;}
+.row2 b{color:var(--ink);}
+.level-bar-wrap{height:3px;background:var(--line);border-radius:2px;margin-top:8px;overflow:hidden;}
+.level-bar{height:100%;background:var(--accent);border-radius:2px;transition:width .3s ease,background .4s ease;}
+.tier-tag{
+  display:inline-block;margin-top:8px;font-size:9px;letter-spacing:1px;font-weight:600;
+  padding:3px 10px;border-radius:20px;
+  background:rgba(94,234,212,0.12);color:var(--accent);border:1px solid rgba(94,234,212,0.3);
+  transition:all .4s ease;
+}
+.next-list{display:flex;flex-direction:column;gap:8px;}
+.next-cell{
+  background:#090a13;border:1px solid var(--line);border-radius:8px;
+  height:52px;display:flex;align-items:center;justify-content:center;
+  opacity:.5;transform:scale(.9);transition:opacity .2s,transform .2s;
+}
+.next-cell.primary{opacity:1;transform:scale(1);border-color:rgba(94,234,212,0.4);}
+.pwr{display:flex;flex-direction:column;gap:8px;}
+.pwr-btn{
+  display:flex;align-items:center;gap:10px;
+  background:#090a13;border:1px solid var(--line);border-radius:10px;padding:9px 12px;
+  transition:box-shadow .2s,opacity .2s;
+}
+.pwr-btn.ready{box-shadow:inset 0 0 0 1px rgba(94,234,212,0.35);}
+.pwr-btn.empty{opacity:.32;}
+.pwr-btn.flash{animation:pwrFlash .5s ease;}
+@keyframes pwrFlash{0%{box-shadow:inset 0 0 0 2px #fff,0 0 20px rgba(255,255,255,0.3);}100%{box-shadow:none;}}
+.pwr-btn .ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+.bomb-ic{background:rgba(255,85,119,0.15);}
+.mult-ic{background:rgba(255,210,63,0.15);}
+.pwr-btn .meta{flex:1;}
+.pwr-btn .lbl{font-size:11.5px;font-weight:600;}
+.pwr-btn .cnt{font-size:10px;color:var(--dim);margin-top:1px;}
+.pwr-btn .key{font-family:'Courier New',monospace;font-size:10px;font-weight:700;background:rgba(255,255,255,0.06);border:1px solid var(--line);border-radius:5px;padding:4px 7px;color:var(--ink);}
+.footer-note{font-size:9px;color:var(--dim);text-align:center;line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="stage"><div class="wrap">
+
+  <div class="board-col">
+    <div class="title">TETRIS <span class="power">// POWER</span><span class="sub">C engine</span></div>
+    <div class="board-wrap">
+      <div class="board-shell" id="shell">
+        <canvas id="board" width="300" height="600"></canvas>
+      </div>
+
+      <!-- START OVERLAY -->
+      <div class="overlay" id="startOvr" style="display:flex;">
+        <h2>TETRIS</h2>
+        <p>
+          <span style="color:var(--ink)">↑</span> Rotate &nbsp;·&nbsp;
+          <span style="color:var(--ink)">← →</span> Move<br>
+          <span style="color:var(--ink)">↓</span> Soft drop &nbsp;·&nbsp;
+          <span style="color:var(--ink)">Space</span> Hard drop<br>
+          <span style="color:var(--ink)">B</span> Bomb &nbsp;·&nbsp;
+          <span style="color:var(--ink)">M</span> 2× Multiplier
+        </p>
+        <button id="startBtn" disabled>Connecting…</button>
+        <div class="conn-status" id="connStatus" style="display:none;">⚠ Cannot connect to server</div>
+      </div>
+
+      <!-- GAME OVER OVERLAY -->
+      <div class="overlay gameover" id="overOvr" style="display:none;">
+        <h2>GAME OVER</h2>
+        <div class="big-score" id="finalScore">0</div>
+        <p style="color:var(--dim);font-size:11px;">points scored</p>
+        <button id="restartBtn">Play Again</button>
+      </div>
+    </div>
+
+    <div class="hint-row">
+      <div class="hint"><kbd>←</kbd><kbd>→</kbd> move</div>
+      <div class="hint"><kbd>↑</kbd> rotate</div>
+      <div class="hint"><kbd>↓</kbd> soft drop</div>
+      <div class="hint"><kbd>SPC</kbd> hard drop</div>
+      <div class="hint"><kbd>B</kbd> bomb</div>
+      <div class="hint"><kbd>M</kbd> mult</div>
+    </div>
+  </div>
+
+  <div class="hud">
+    <div class="panel">
+      <h3>Score</h3>
+      <div class="score-big" id="scoreEl">0</div>
+      <div class="row2"><span>Best</span><b id="bestEl">0</b></div>
+      <div class="row2"><span>Level</span><b id="levelEl">1</b></div>
+      <div class="level-bar-wrap"><div class="level-bar" id="levelBar" style="width:0%"></div></div>
+      <div class="tier-tag" id="tierTag">TIER 1</div>
+    </div>
+
+    <div class="panel">
+      <h3>Next</h3>
+      <div class="next-list" id="nextList">
+        <div class="next-cell primary"></div>
+        <div class="next-cell"></div>
+        <div class="next-cell"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Powerups</h3>
+      <div class="pwr">
+        <div class="pwr-btn ready" id="bombBtn">
+          <div class="ic bomb-ic">💣</div>
+          <div class="meta">
+            <div class="lbl">Bomb Blast</div>
+            <div class="cnt" id="bombCnt">1 ready</div>
+          </div>
+          <div class="key">B</div>
+        </div>
+        <div class="pwr-btn ready" id="multBtn">
+          <div class="ic mult-ic">⚡</div>
+          <div class="meta">
+            <div class="lbl">2× Multiplier</div>
+            <div class="cnt" id="multCnt">1 ready</div>
+          </div>
+          <div class="key">M</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-note">+1 bomb every 5,000 pts<br>+1 mult every 10,000 pts</div>
+  </div>
+
+</div></div>
+
+<script>
+// ── palette (1-7 match C engine color ids) ────────────────────────────────────
+const PAL = [
+  null,
+  {fill:'#5eead4', glow:'rgba(94,234,212,0.7)'},   // 1 I - cyan
+  {fill:'#ffd23f', glow:'rgba(255,210,63,0.7)'},   // 2 O - yellow
+  {fill:'#a78bfa', glow:'rgba(167,139,250,0.7)'},  // 3 T - purple
+  {fill:'#4ade80', glow:'rgba(74,222,128,0.7)'},   // 4 S - green
+  {fill:'#ff5577', glow:'rgba(255,85,119,0.7)'},   // 5 Z - red
+  {fill:'#60a5fa', glow:'rgba(96,165,250,0.7)'},   // 6 J - blue
+  {fill:'#ffb84d', glow:'rgba(255,184,77,0.7)'},   // 7 L - orange
+];
+
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d');
+const CELL=30, COLS=10, ROWS=20;
+
+// ── drawing helpers ───────────────────────────────────────────────────────────
+function shade(hex, p){
+  const n=parseInt(hex.slice(1),16), d=Math.round(255*(p/100));
+  const cl=v=>Math.max(0,Math.min(255,v));
+  return '#'+(1<<24|cl((n>>16)+d)<<16|cl(((n>>8)&0xff)+d)<<8|cl((n&0xff)+d)).toString(16).slice(1);
+}
+
+function drawCell(x, y, col, alpha=1){
+  if(!col) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const g = ctx.createLinearGradient(x, y, x, y+CELL);
+  g.addColorStop(0, col.fill);
+  g.addColorStop(1, shade(col.fill, -30));
+  ctx.fillStyle = g;
+  ctx.shadowColor = col.glow;
+  ctx.shadowBlur = 12;
+  const r=5, px=x+1.5, py=y+1.5, pw=CELL-3, ph=CELL-3;
+  ctx.beginPath();
+  ctx.moveTo(px+r,py); ctx.arcTo(px+pw,py,px+pw,py+ph,r);
+  ctx.arcTo(px+pw,py+ph,px,py+ph,r); ctx.arcTo(px,py+ph,px,py,r);
+  ctx.arcTo(px,py,px+pw,py,r); ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawGridLines(){
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  for(let c=1;c<COLS;c++){ctx.beginPath();ctx.moveTo(c*CELL,0);ctx.lineTo(c*CELL,ROWS*CELL);ctx.stroke();}
+  for(let r=1;r<ROWS;r++){ctx.beginPath();ctx.moveTo(0,r*CELL);ctx.lineTo(COLS*CELL,r*CELL);ctx.stroke();}
+}
+
+// ── particles ─────────────────────────────────────────────────────────────────
+let particles = [];
+
+function spawnExplosion(){
+  for(let i=0;i<90;i++){
+    particles.push({
+      x: Math.random()*COLS*CELL,
+      y: ROWS*CELL - Math.random()*CELL*3,
+      vx: (Math.random()-.5)*14,
+      vy: -Math.random()*10-2,
+      life: 1.6,
+      color: i%3===0?'#ff5577': i%3===1?'#ffb84d':'#ffd23f',
+      size: 2.5+Math.random()*5.5
+    });
+  }
+}
+
+function stepParticles(){
+  particles.forEach(p=>{
+    p.x+=p.vx; p.y+=p.vy; p.vy+=0.3; p.life-=0.028;
+  });
+  particles = particles.filter(p=>p.life>0);
+}
+
+function drawParticles(){
+  particles.forEach(p=>{
+    ctx.save();
+    ctx.globalAlpha = Math.max(p.life,0);
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 9;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ── main canvas render ────────────────────────────────────────────────────────
+let lastState = null;
+let animRunning = false;
+
+function renderFrame(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawGridLines();
+
+  if(!lastState){ stepParticles(); drawParticles(); return; }
+
+  const s = lastState;
+
+  // locked grid
+  for(let r=0;r<ROWS;r++)
+    for(let c=0;c<COLS;c++)
+      if(s.grid[r][c]) drawCell(c*CELL, r*CELL, PAL[s.grid[r][c]]);
+
+  // ghost piece
+  if(s.ghost && s.cur){
+    const sh=s.cur.shape, gx=s.ghost.x, gy=s.ghost.y;
+    for(let r=0;r<4;r++) for(let c=0;c<4;c++)
+      if(sh[r][c]) drawCell((gx+c)*CELL,(gy+r)*CELL, PAL[s.cur.color], 0.14);
+  }
+
+  // current piece
+  if(s.cur){
+    const sh=s.cur.shape, px=s.cur.x, py=s.cur.y;
+    for(let r=0;r<4;r++) for(let c=0;c<4;c++)
+      if(sh[r][c]) drawCell((px+c)*CELL,(py+r)*CELL, PAL[s.cur.color]);
+  }
+
+  stepParticles();
+  drawParticles();
+}
+
+function startRenderLoop(){
+  if(animRunning) return;
+  animRunning = true;
+  function loop(){ renderFrame(); requestAnimationFrame(loop); }
+  requestAnimationFrame(loop);
+}
+
+// ── next pieces preview ───────────────────────────────────────────────────────
+function renderNext(nextArr){
+  if(!nextArr||!nextArr.length) return;
+  const list = document.getElementById('nextList');
+  list.innerHTML = '';
+  nextArr.forEach((p,idx)=>{
+    const cell = document.createElement('div');
+    cell.className = 'next-cell' + (idx===0?' primary':'');
+    const cv = document.createElement('canvas');
+    const sz = idx===0?52:42;
+    cv.width=sz; cv.height=sz;
+    cell.appendChild(cv); list.appendChild(cell);
+    const pc = cv.getContext('2d');
+    const col = PAL[p.color] || PAL[1];
+    const cs = Math.floor(sz/4*0.78);
+    const ox=(sz-4*cs)/2, oy=(sz-4*cs)/2;
+    for(let r=0;r<4;r++) for(let c=0;c<4;c++){
+      if(!p.shape[r][c]) continue;
+      const rx=ox+c*cs, ry=oy+r*cs, rr=3;
+      pc.fillStyle=col.fill; pc.shadowColor=col.glow; pc.shadowBlur=idx===0?8:4;
+      pc.beginPath();
+      pc.moveTo(rx+rr,ry); pc.arcTo(rx+cs,ry,rx+cs,ry+cs,rr);
+      pc.arcTo(rx+cs,ry+cs,rx,ry+cs,rr); pc.arcTo(rx,ry+cs,rx,ry,rr);
+      pc.arcTo(rx,ry,rx+cs,ry,rr); pc.fill();
+    }
+  });
+}
+
+// ── HUD updates ───────────────────────────────────────────────────────────────
+let prevScore=0, prevBombs=1, prevMults=1, prevBombCount=1, tier=0;
+
+const TIER_HUES = [165,212,259,306,20,67,114];
+
+function setTier(t){
+  const hue = TIER_HUES[t % TIER_HUES.length];
+  const tag = document.getElementById('tierTag');
+  tag.textContent = 'TIER '+(t+1);
+  tag.style.background = `hsla(${hue},80%,55%,0.15)`;
+  tag.style.color = `hsl(${hue},90%,68%)`;
+  tag.style.borderColor = `hsla(${hue},80%,60%,0.4)`;
+  document.getElementById('levelBar').style.background = `hsl(${hue},90%,65%)`;
+  // flash
+  const shell = document.getElementById('shell');
+  shell.style.filter='brightness(2.2)';
+  setTimeout(()=>shell.style.filter='',280);
+}
+
+function flashEl(id){
+  const el=document.getElementById(id);
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+}
+
+function updateHUD(s){
+  // score
+  if(s.score !== prevScore){
+    const el=document.getElementById('scoreEl');
+    el.textContent=s.score;
+    el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+  }
+  document.getElementById('bestEl').textContent = s.best;
+  document.getElementById('levelEl').textContent = (s.level||0)+1;
+  document.getElementById('levelBar').style.width = Math.min((s.score%10000)/100,100)+'%';
+
+  // bombs
+  document.getElementById('bombCnt').textContent = s.bombs+' ready';
+  const bombBtn=document.getElementById('bombBtn');
+  bombBtn.classList.toggle('ready',s.bombs>0);
+  bombBtn.classList.toggle('empty',s.bombs<=0);
+  if(s.bombs>prevBombs) flashEl('bombBtn');
+
+  // multiplier
+  const multBtn=document.getElementById('multBtn');
+  const multCnt=document.getElementById('multCnt');
+  if(s.multiplier>1){
+    multCnt.innerHTML=`<b style="color:var(--gold)">2× ACTIVE</b> · ${s.multLeft} left`;
+    multBtn.classList.add('ready'); multBtn.classList.remove('empty');
+    document.getElementById('shell').classList.add('mult');
+  } else {
+    multCnt.textContent=s.mults+' ready';
+    multBtn.classList.toggle('ready',s.mults>0);
+    multBtn.classList.toggle('empty',s.mults<=0);
+    document.getElementById('shell').classList.remove('mult');
+  }
+  if(s.mults>prevMults) flashEl('multBtn');
+
+  // tier
+  const newTier=Math.floor(s.score/10000);
+  if(newTier!==tier){ tier=newTier; setTier(tier); }
+
+  prevScore=s.score; prevBombs=s.bombs; prevMults=s.mults;
+}
+
+// ── socket connection ─────────────────────────────────────────────────────────
+const socket = io();
+
+socket.on('connect', ()=>{
+  console.log('Connected');
+  const btn=document.getElementById('startBtn');
+  btn.disabled=false;
+  btn.textContent='Start Game';
+  document.getElementById('connStatus').style.display='none';
+});
+
+socket.on('connect_error', ()=>{
+  document.getElementById('connStatus').style.display='block';
+});
+
+socket.on('disconnect', ()=>{
+  const btn=document.getElementById('startBtn');
+  btn.disabled=true;
+  btn.textContent='Disconnected';
+});
+
+socket.on('state', (s)=>{
+  // bomb used → explosion + shake
+  if(s.bombs < prevBombCount){
+    spawnExplosion();
+    const sh=document.getElementById('shell');
+    sh.classList.remove('shake'); void sh.offsetWidth; sh.classList.add('shake');
+  }
+  prevBombCount = s.bombs;
+
+  lastState = s;
+  updateHUD(s);
+  renderNext(s.next);
+
+  if(s.gameOver){
+    document.getElementById('finalScore').textContent = s.score;
+    document.getElementById('overOvr').style.display='flex';
+    lastState = null;
+  }
+});
+
+// ── key handling ─────────────────────────────────────────────────────────────
+const KEY_MAP = {
+  'ArrowLeft':'left','ArrowRight':'right','ArrowUp':'rotate',
+  'ArrowDown':'down',' ':'drop','b':'bomb','B':'bomb','m':'mult','M':'mult'
+};
+
+document.addEventListener('keydown', e=>{
+  const k=KEY_MAP[e.key];
+  if(!k) return;
+  if(e.key===' ') e.preventDefault();
+  socket.emit('key',{key:k});
+});
+
+// ── buttons ───────────────────────────────────────────────────────────────────
+function beginGame(){
+  document.getElementById('startOvr').style.display='none';
+  document.getElementById('overOvr').style.display='none';
+  prevScore=0; prevBombs=1; prevMults=1; tier=0; prevBombCount=1;
+  particles=[]; lastState=null;
+  socket.emit('start');
+  startRenderLoop();
+}
+
+document.getElementById('startBtn').addEventListener('click', beginGame);
+document.getElementById('restartBtn').addEventListener('click', beginGame);
+
+// start render loop immediately so grid lines show
+startRenderLoop();
+</script>
+</body>
+</html>
